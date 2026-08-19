@@ -8,14 +8,37 @@ const crypto = require("crypto");
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
-app.use(express.static(__dirname)); 
+app.use(express.static(path.join(__dirname, "public")));
 
 // ---- in-memory state -------------------------------------------------
 
-const players = new Map(); // id -> {id,key,name,character,direction,x,y,room}
+const players = new Map(); // id -> {id,key,name,character,direction,x,y,room,lastSeen}
 const outbox = new Map(); // id -> array of pending lines for that player
 const accounts = new Map(); // name -> {password, email}
 let nextId = 1;
+
+const IDLE_TIMEOUT_MS = 60_000; // drop a player if they haven't polled in this long
+const REAP_INTERVAL_MS = 15_000;
+
+function touch(p) {
+  if (p) p.lastSeen = Date.now();
+}
+
+function dropPlayer(p) {
+  if (p.room != null) broadcast(p.room, p.id, String(p.id)); // single-field line = drop
+  players.delete(p.id);
+  outbox.delete(p.id);
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const p of [...players.values()]) {
+    if (now - p.lastSeen > IDLE_TIMEOUT_MS) {
+      console.log(`Reaping idle player ${p.id} (${p.name})`);
+      dropPlayer(p);
+    }
+  }
+}, REAP_INTERVAL_MS);
 
 function genKey() {
   return crypto.randomBytes(4).toString("hex").slice(0, 4);
@@ -70,7 +93,7 @@ app.post("/login.php", (req, res) => {
 
   const id = nextId++;
   const key = genKey();
-  players.set(id, { id, key, name: n, character: 1, direction: 1, x: 0, y: 0, room: null });
+  players.set(id, { id, key, name: n, character: 1, direction: 1, x: 0, y: 0, room: null, lastSeen: Date.now() });
   outbox.set(id, []);
   respond(res, { id, k: key, e: 0, m: 0, email: acct.email || "", p1: "", p2: "", p3: "" });
 });
@@ -80,7 +103,7 @@ app.post("/new.php", (req, res) => {
   const { n } = req.body;
   const id = nextId++;
   const key = genKey();
-  players.set(id, { id, key, name: n, character: 1, direction: 1, x: 0, y: 0, room: null });
+  players.set(id, { id, key, name: n, character: 1, direction: 1, x: 0, y: 0, room: null, lastSeen: Date.now() });
   outbox.set(id, []);
   respond(res, { id, k: key, e: 0 });
 });
@@ -106,6 +129,8 @@ app.post("/editaccount.php", (req, res) => {
 });
 
 app.post("/wait.php", (req, res) => {
+  const p = players.get(Number(req.body.id));
+  touch(p);
   respond(res, {}); // simple heartbeat, no fields required
 });
 
@@ -115,6 +140,7 @@ app.post("/join.php", (req, res) => {
   const { id, k, r, s } = req.body;
   const p = players.get(Number(id));
   if (!p || p.key !== k) return respond(res, { e: 1 });
+  touch(p);
 
   const [character, dirCode, xCode, yCode] = (s || "").split("|");
   p.character = character || p.character;
@@ -142,6 +168,7 @@ app.post("/chat.php", (req, res) => {
   const { id, k, r, s, d } = req.body;
   const p = players.get(Number(id));
   if (!p || p.key !== k) return respond(res, { e: 1 });
+  touch(p);
 
   if (s !== undefined && s !== "") {
     const [character, dirCode, xCode, yCode] = s.split("|");
@@ -161,9 +188,7 @@ app.post("/drop.php", (req, res) => {
   const { id, k } = req.body;
   const p = players.get(Number(id));
   if (!p) return respond(res, { e: 0 });
-  if (p.room != null) broadcast(p.room, p.id, String(p.id)); // single-field line = drop
-  players.delete(p.id);
-  outbox.delete(p.id);
+  dropPlayer(p);
   respond(res, { e: 0 });
 });
 
