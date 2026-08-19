@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flippy Chat — revived</title>
+<script src="/ruffle/ruffle.js"></script>
+<style>
+  html, body { margin:0; height:100%; background:#0e1a12; }
+  #stage { width:800px; height:500px; margin:24px auto; }
+  h1 { text-align:center; font-family:sans-serif; color:#cde; }
+</style>
+</head>
+<body>
+<h1>Flippy Chat — locally revived</h1>
+<div id="stage"></div>
+<script>
+window.RufflePlayer = window.RufflePlayer || {};
+window.addEventListener("DOMContentLoaded", () => {
+  const ruffle = window.RufflePlayer.newest();
+  const player = ruffle.createPlayer();
+  const container = document.getElementById("stage");
+  container.appendChild(player);
+  player.style.width = "100%";
+  player.style.height = "100%";
+  player.load({
+    url: "/chat.swf",
+    parameters: {
+      timePoll: 1500,
+      timeOut: 15000,
+      timeDrop: 60000
+      // setName: "GuestName"  // uncomment to auto-skip the login screen
+    }
+  });
+});
+</script>
+</body>
+</html>
